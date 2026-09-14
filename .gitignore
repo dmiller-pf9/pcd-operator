@@ -1,2 +1,14 @@
 # Claude Code worktrees live inside the repo; never track their contents
 .claude/worktrees/
+
+# Tool binaries installed by the Makefile
+bin/
+# envtest control-plane assets
+testbin/
+# Test and coverage output
+cover.out
+*.test
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
