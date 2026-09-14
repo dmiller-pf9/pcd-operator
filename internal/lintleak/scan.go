@@ -74,6 +74,26 @@ func ScanTree(root string) ([]Finding, error) {
 	return found, err
 }
 
+// ScanAll is the whole of `make lint-leak`: the API tree is scanned in full,
+// and the rest of the module is scanned for banned words in error and event
+// constructors.
+//
+// config/crd/ is deliberately not scanned. Generated CRD manifests contain
+// `x-kubernetes-preserve-unknown-fields`, `x-kubernetes-list-type` and friends,
+// which the x-namespace term legitimately matches. Those files are generated
+// from api/, which *is* scanned, so nothing is lost by excluding them.
+func ScanAll(root string) ([]Finding, error) {
+	apiFindings, err := ScanTree(filepath.Join(root, "api"))
+	if err != nil {
+		return nil, err
+	}
+	goFindings, err := ScanGoTree(root)
+	if err != nil {
+		return nil, err
+	}
+	return append(apiFindings, goFindings...), nil
+}
+
 // skipDir excludes trees whose contents are not ours to police.
 func skipDir(name string) bool {
 	switch name {

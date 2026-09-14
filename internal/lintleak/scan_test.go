@@ -41,6 +41,18 @@ func TestScanText_FlagsEveryBannedTerm(t *testing.T) {
 	}
 }
 
+func TestScanAll_IsCleanOnThisRepo(t *testing.T) {
+	// Runs the exact scan `make lint-leak` runs, against the repo root, so a
+	// leak fails `go test` as well as the dedicated target.
+	found, err := ScanAll("../..")
+	if err != nil {
+		t.Fatalf("ScanAll returned error: %v", err)
+	}
+	for _, f := range found {
+		t.Errorf("%s", f)
+	}
+}
+
 func TestScanText_DoesNotFlagLegitimateVocabulary(t *testing.T) {
 	// Every string here is real API vocabulary that milestone 002 introduces or
 	// that the design already uses. A finding on any of them is a linter bug,
