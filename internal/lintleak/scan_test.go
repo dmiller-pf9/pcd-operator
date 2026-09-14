@@ -41,6 +41,33 @@ func TestScanText_FlagsEveryBannedTerm(t *testing.T) {
 	}
 }
 
+func TestScanText_DoesNotFlagLegitimateVocabulary(t *testing.T) {
+	// Every string here is real API vocabulary that milestone 002 introduces or
+	// that the design already uses. A finding on any of them is a linter bug,
+	// not a spec violation.
+	clean := []string{
+		`// +kubebuilder:validation:Enum=X-Small;Small;Medium;Large;X-Large`,
+		`SizeXSmall PCDSize = "X-Small"`,
+		`SizeXLarge PCDSize = "X-Large"`,
+		`// Storage is passed through to spec.storage (s3 / persistentVolumeClaim / volume)`,
+		`PersistentVolumeClaim corev1.PersistentVolumeClaim`,
+		`Components map[string]ComponentSpec `,
+		`// ingress-nginx is the default ingress controller`,
+		`IngressClass string `,
+		`// MaxUserConnections per service user`,
+		`// domain and maintenance windows are unaffected`,
+		`MaintenanceWindow struct {`,
+	}
+
+	for _, line := range clean {
+		t.Run(line, func(t *testing.T) {
+			if got := ScanText("api/v1alpha1/x.go", line); len(got) != 0 {
+				t.Errorf("ScanText(%q) flagged %+v, want no findings", line, got)
+			}
+		})
+	}
+}
+
 func TestScanText_ReportsLineNumbers(t *testing.T) {
 	text := "package v1alpha1\n\n// clean line\n// the bork adapter\n"
 	got := ScanText("api/v1alpha1/thing.go", text)
