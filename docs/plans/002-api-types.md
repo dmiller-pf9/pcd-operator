@@ -15,12 +15,23 @@ files and each kind file holds only its own spec. Nothing here has behaviour:
 the tests assert the *shape* of the generated artifacts, which is the only thing
 that can be wrong at this stage and the only thing later milestones depend on.
 
-**Tech Stack:** Go 1.25, controller-gen v0.22.0, controller-runtime v0.25.1.
+**Tech Stack:** Go 1.26 (`k8s.io/apimachinery` v0.37.0 requires `go >= 1.26.0`,
+so `go get` raises the go directive from 1.25.0 during task 2.1 — expected, not a
+mistake), controller-gen v0.22.0.
 
 **Requirements covered:** SPEC §4.1 API-001, API-002, API-003, API-005.
 Invariants INV-1, INV-6, INV-7, INV-8.
 
 ---
+
+## Workflow note
+
+`make verify` includes `check-generated`, which diffs `api/` and `config/`
+against git. Locally that means **commit before running `make verify`**: with
+uncommitted source in `api/` it reports "generated files are out of date" when
+the real state is "you have not committed yet". The per-task order below —
+regenerate, commit, then verify — is deliberate for this reason. In CI the
+checkout is clean, so the check means what it says.
 
 ## Scope notes — read before starting
 
@@ -59,8 +70,13 @@ plan was commissioned; an executing agent must not add to it.**
 | `k8s.io/apimachinery` | v0.37.0 | `metav1`, `intstr`, `resource` |
 | `k8s.io/api` | v0.37.0 | `corev1`, `autoscalingv2` |
 | `k8s.io/apiextensions-apiserver` | v0.37.0 | `apiextensionsv1.JSON` for the passthrough fields (INV-8) |
-| `sigs.k8s.io/controller-runtime` | v0.25.1 | `scheme.Builder` |
-| `sigs.k8s.io/yaml` | (transitive, promoted to direct) | reading generated CRDs in tests |
+| `sigs.k8s.io/yaml` | v1.6.0 | reading generated CRDs in tests |
+
+**controller-runtime is deliberately NOT a dependency.** The original plan used
+its `pkg/scheme.Builder`; golangci-lint rejects that as deprecated (SA1019), and
+the deprecation text says why: an api package should be cheap to import and
+should depend on apimachinery alone. Use apimachinery's `runtime.SchemeBuilder`
+instead. The module ends milestone 002 with exactly four direct dependencies.
 
 `k8s.mariadb.com/v1alpha1` is **not** a dependency. SPEC API-005 permits its
 types, but DESIGN §4.3 reaches the MariaDB API through `apiextensionsv1.JSON`
@@ -158,28 +174,38 @@ go get sigs.k8s.io/yaml
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
+
+// NOTE: the registerKinds helper that each kind file's init() calls belongs in
+// pcdunderlay_types.go (task 2.9), with its first caller. Declared here it is an
+// unexported function with no callers until task 2.9, which fails the `unused`
+// linter on every task in between.
 
 var (
 	// GroupVersion is the group and version for this API (SPEC API-001).
 	GroupVersion = schema.GroupVersion{Group: "install.pcd.platform9.com", Version: "v1alpha1"}
 
 	// SchemeBuilder registers this API's types with a runtime.Scheme.
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	//
+	// apimachinery's runtime.SchemeBuilder, NOT controller-runtime's
+	// pkg/scheme.Builder, which is deprecated for exactly this use.
+	SchemeBuilder = runtime.NewSchemeBuilder()
 
 	// AddToScheme adds this API's types to a runtime.Scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 ```
 
-- [ ] **Step 4: Create `api/v1alpha1/helpers_test.go`**
+- [ ] **Step 4: Create `api/v1alpha1/helpers_test.go` — in task 2.2, not here**
 
-Every later task in this milestone asserts the JSON tag spelling of a struct,
-because a json tag *is* the CRD field name. The helper lives in its own file,
-created here, so that no task has to depend on another task purely for a test
-helper.
+Every later task asserts the JSON tag spelling of a struct, because a json tag
+*is* the CRD field name. The helper lives in its own file so no task depends on
+another purely for a test helper — but it must be created in **task 2.2**,
+alongside its first caller. Created here it has no caller yet and
+golangci-lint's `unused` fails `make verify`. Task 2.2's
+`TestReleaseSpecJSONTags` calls it.
 
 ```go
 package v1alpha1
