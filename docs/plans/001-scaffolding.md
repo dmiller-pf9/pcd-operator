@@ -27,6 +27,7 @@ was written; an executing agent MUST NOT change them.
 | Decision | Value | Why it is not a §9 open decision |
 |---|---|---|
 | Go module path | `platform9.com/pcd-operator` | Repo identity, no behavioural consequence |
+| Go directive `1.25.0` | kept, despite controller-tools v0.22.0 needing >= 1.26.0 | Go downloads the newer toolchain on demand; go.mod states the language version this code needs, not the tools' |
 | CI platform | GitHub Actions, `.github/workflows/ci.yml` | Milestone 001 says "CI" without naming one |
 
 ## Dependencies introduced
@@ -82,6 +83,9 @@ go 1.25.0
 - [ ] **Step 2: Create `.gitignore`**
 
 ```
+# Claude Code worktrees live inside the repo; never track their contents
+.claude/worktrees/
+
 # Tool binaries installed by the Makefile
 bin/
 # envtest control-plane assets
@@ -413,10 +417,12 @@ func ScanTree(root string) ([]Finding, error) {
 	return found, err
 }
 
-// skipDir excludes trees whose contents are not ours to police.
+// skipDir excludes trees whose contents are not ours to police. `.claude`
+// matters because worktrees are created at .claude/worktrees/ inside the repo;
+// without it the scan walks a nested copy of the whole tree.
 func skipDir(name string) bool {
 	switch name {
-	case ".git", "bin", "testbin", "vendor", "testdata":
+	case ".git", ".claude", "bin", "testbin", "vendor", "testdata":
 		return true
 	}
 	return false
@@ -959,8 +965,11 @@ printf 'package v1alpha1\n\n// TargetCluster selects the cluster.\ntype Leak str
 make lint-leak; echo "exit=$?"
 rm -rf api
 ```
-Expected: a finding naming `targetCluster` and `exit=1`. Paste this into your
-task notes — it is the only evidence the target is wired up.
+Expected: a finding naming `targetCluster`, and a non-zero exit. Note that
+`make` reports `Error 1` from the recipe but itself exits **2** — the binary
+exits 1 and make wraps it. Paste this into your task notes; it is the only
+evidence the target is wired up. `go test ./internal/lintleak/ -run TestScanAll`
+fails on the same fixture, which is the second half of the evidence.
 
 - [ ] **Step 7: Commit**
 
@@ -1072,13 +1081,16 @@ check-generated: ## Fail if manifests/generate produced uncommitted changes
 
 ##@ Tools
 
-$(CONTROLLER_GEN): $(LOCALBIN)
+# Order-only prerequisites (`| $(LOCALBIN)`). With a normal prerequisite,
+# installing one tool bumps bin/'s mtime and invalidates the other two, so every
+# `make verify` reinstalls them.
+$(CONTROLLER_GEN): | $(LOCALBIN)
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
-$(GOLANGCI_LINT): $(LOCALBIN)
+$(GOLANGCI_LINT): | $(LOCALBIN)
 	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-$(SETUP_ENVTEST): $(LOCALBIN)
+$(SETUP_ENVTEST): | $(LOCALBIN)
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
 
 ##@ Help
@@ -1212,10 +1224,14 @@ jobs:
 
 - [ ] **Step 2: Confirm the workflow parses**
 
+Use whichever of these is installed — `pyyaml` is often absent on macOS:
+
 ```bash
-python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); print('ci.yml parses')"
+yq '.jobs.verify.steps[] | .uses // .name' .github/workflows/ci.yml
+# or
+ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yml"); puts "ci.yml parses"'
 ```
-Expected: `ci.yml parses`
+Expected: the four step identifiers, or `ci.yml parses`
 
 - [ ] **Step 3: Confirm the command CI runs actually passes locally**
 
