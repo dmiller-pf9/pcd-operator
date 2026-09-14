@@ -1,0 +1,2 @@
+# Claude Code worktrees live inside the repo; never track their contents
+.claude/worktrees/
